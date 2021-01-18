@@ -112,27 +112,31 @@ MODULE_DEVICE_TABLE(of, timer_of_match);
 
 static irqreturn_t xilaxitimer_isr(int irq,void*dev_id)		
 {      
-	unsigned int data = 0;
-
+	uint32_t data0 = 0;
+	uint32_t data1 = 0;
+	uint32_t data1_check;
 	// Check Timer Counter Value
-	data = ioread32(tp->base_addr + XIL_AXI_TIMER_TCR_OFFSET);
-	printk(KERN_INFO "xilaxitimer_isr: Interrupt %d occurred !\n",i_cnt);
+	data1 = ioread32(tp->base_addr + XIL_AXI_TIMER_TCR1_OFFSET);
+	data0 = ioread32(tp->base_addr + XIL_AXI_TIMER_TCR0_OFFSET);
+
+	data1_check = ioread32(tp->base_addrr + XIL_AXI_TIMER_TCR1_OFFSET);
+	if(data1_check!=data1){
+		data1 = data1_check;
+		data0 = ioread32(tp->base_addr + XIL_AXI_TIMER_TCR0_OFFSET);
+	}
+	
+	printk(KERN_INFO "xilaxitimer_isr: Interrupt occurred !\n");
 
 	// Clear Interrupt
-	data = ioread32(tp->base_addr + XIL_AXI_TIMER_TCSR_OFFSET);
-	iowrite32(data | XIL_AXI_TIMER_CSR_INT_OCCURED_MASK,
-			tp->base_addr + XIL_AXI_TIMER_TCSR_OFFSET);
+	data0 = ioread32(tp->base_addr + XIL_AXI_TIMER_TCSR0_OFFSET);
+	iowrite32(data0 | XIL_AXI_TIMER_CSR_INT_OCCURED_MASK,
+			tp->base_addr + XIL_AXI_TIMER_TCSR0_OFFSET);
 
-	// Increment number of interrupts that have occured
-	i_cnt++;
-	// Disable Timer after i_num interrupts
-	if (i_cnt>=i_num)
-	{
-		printk(KERN_NOTICE "xilaxitimer_isr: All of the interrupts have occurred. Disabling timer\n");
-		data = ioread32(tp->base_addr + XIL_AXI_TIMER_TCSR_OFFSET);
-		iowrite32(data & ~(XIL_AXI_TIMER_CSR_ENABLE_TMR_MASK), tp->base_addr + XIL_AXI_TIMER_TCSR_OFFSET);
-		i_cnt = 0;
-	}
+	data0 = ioread32(tp->base_addr + XIL_AXI_TIMER_TCSR0_OFFSET);
+	iowrite32(data0 & ~(XIL_AXI_TIMER_CSR_ENABLE_TMR_MASK), tp->base_addr + XIL_AXI_TIMER_TCSR0_OFFSET);
+	data1 = ioread32(tp->base_addr + XIL_AXI_TIMER_TCSR1_OFFSET);
+	iowrite32(data1 & ~(XIL_AXI_TIMER_CSR_ENABLE_TMR_MASK), tp->base_addr + XIL_AXI_TIMER_TCSR1_OFFSET);
+
 
 	return IRQ_HANDLED;
 }
