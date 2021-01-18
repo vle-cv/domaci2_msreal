@@ -114,14 +114,12 @@ static irqreturn_t xilaxitimer_isr(int irq,void*dev_id)
 {      
 	uint32_t data0 = 0;
 	uint32_t data1 = 0;
-	uint32_t data1_check;
 	// Check Timer Counter Value
 	data1 = ioread32(tp->base_addr + XIL_AXI_TIMER_TCR1_OFFSET);
 	data0 = ioread32(tp->base_addr + XIL_AXI_TIMER_TCR0_OFFSET);
 
-	data1_check = ioread32(tp->base_addrr + XIL_AXI_TIMER_TCR1_OFFSET);
-	if(data1_check!=data1){
-		data1 = data1_check;
+	if(data1!=ioread32(tp->base_addr + XIL_AXI_TIMER_TCR1_OFFSET){
+		data1 = ioread32(tp->base_addr + XIL_AXI_TIMER_TCR1_OFFSET);
 		data0 = ioread32(tp->base_addr + XIL_AXI_TIMER_TCR0_OFFSET);
 	}
 	
