@@ -43,7 +43,7 @@
 #define XIL_AXI_TIMER_CSR_DOWN_COUNT_MASK	0x00000002
 #define XIL_AXI_TIMER_CSR_CAPTURE_MODE_MASK	0x00000001
 
-#define BUFF_SIZE 
+#define BUFF_SIZE 100 
 #define DRIVER_NAME "timer"
 #define DEVICE_NAME "xilaxitimer"
 
@@ -65,8 +65,8 @@ static struct device *my_device;
 static struct cdev *my_cdev;
 static struct timer_info *tp = NULL;
 
-static int i_num = 1;
-static int i_cnt = 0;
+//static int i_num = 1;
+//static int i_cnt = 0;
 
 
 static irqreturn_t xilaxitimer_isr(int irq,void*dev_id);
@@ -118,7 +118,7 @@ static irqreturn_t xilaxitimer_isr(int irq,void*dev_id)
 	data1 = ioread32(tp->base_addr + XIL_AXI_TIMER_TCR1_OFFSET);
 	data0 = ioread32(tp->base_addr + XIL_AXI_TIMER_TCR0_OFFSET);
 
-	if(data1!=ioread32(tp->base_addr + XIL_AXI_TIMER_TCR1_OFFSET){
+	if(data1!=ioread32(tp->base_addr + XIL_AXI_TIMER_TCR1_OFFSET)){
 		data1 = ioread32(tp->base_addr + XIL_AXI_TIMER_TCR1_OFFSET);
 		data0 = ioread32(tp->base_addr + XIL_AXI_TIMER_TCR0_OFFSET);
 	}		
@@ -147,8 +147,10 @@ static void setup_and_start_timer(unsigned int milliseconds)
 	uint64_t timer_load;
 	uint64_t zero = 0;
 	uint32_t data = 0;
-	uint32_t data0 = 0;
-	uint32_t data1 = 0;
+//	uint32_t data0 = 0;
+//	uint32_t data1 = 0;
+	uint32_t load0 = 0, load1 = 0;	
+
 	timer_load = zero - milliseconds*100000;
 	load0 = (uint32_t)timer_load;
 	load1 = (uint32_t)(timer_load >> 32); 
@@ -190,7 +192,7 @@ static void setup_and_start_timer(unsigned int milliseconds)
 	// Start Timer by setting enable signal
 	data = ioread32(tp->base_addr + XIL_AXI_TIMER_TCSR0_OFFSET);
 	iowrite32(data | XIL_AXI_TIMER_CSR_ENABLE_ALL_MASK,
-			tp->base_addr + XIL_AXI_TIMER_TCSR_OFFSET);
+			tp->base_addr + XIL_AXI_TIMER_TCSR0_OFFSET);
 
 }
 
@@ -270,9 +272,9 @@ static int timer_remove(struct platform_device *pdev)
 {
 	// Disable timer
 	unsigned int data=0;
-	data = ioread32(tp->base_addr + XIL_AXI_TIMER_TCSR_OFFSET);
+	data = ioread32(tp->base_addr + XIL_AXI_TIMER_TCSR0_OFFSET);
 	iowrite32(data & ~(XIL_AXI_TIMER_CSR_ENABLE_TMR_MASK),
-			tp->base_addr + XIL_AXI_TIMER_TCSR_OFFSET);
+			tp->base_addr + XIL_AXI_TIMER_TCSR0_OFFSET);
 	// Free resources taken in probe
 	free_irq(tp->irq_num, NULL);
 	iowrite32(0, tp->base_addr);
@@ -313,13 +315,14 @@ ssize_t timer_read(struct file *pfile, char __user *buffer, size_t length, loff_
 	uint64_t hour = 0;
 	int ret = 0;
 	unsigned int len = 0;	
+	char buff[BUFF_SIZE];
 
-	time1=ioread(tp->base_addr + XIL_AXI_TIMER_TCR1_OFFSET);
-	time0=ioread(tp->base_addr + XIL_AXI_TIMER_TCR0_OFFSET);
+	time1=ioread32(tp->base_addr + XIL_AXI_TIMER_TCR1_OFFSET);
+	time0=ioread32(tp->base_addr + XIL_AXI_TIMER_TCR0_OFFSET);
 	
-	if(time1!=ioread(tp->base_addr + XIL_AXI_TIMER_TCR1_OFFSER)){
-		time1=ioread(tp->base_addr + XIL_AXI_TIMER_TCR1_OFFSET);
-		time0=ioread(tp->base_addr + XIL_AXI_TIMER_TCR0_OFFSET);
+	if(time1!=ioread32(tp->base_addr + XIL_AXI_TIMER_TCR1_OFFSET)){
+		time1=ioread32(tp->base_addr + XIL_AXI_TIMER_TCR1_OFFSET);
+		time0=ioread32(tp->base_addr + XIL_AXI_TIMER_TCR0_OFFSET);
 	}
 
 	time_10nano = time1;
@@ -335,12 +338,12 @@ ssize_t timer_read(struct file *pfile, char __user *buffer, size_t length, loff_
 	min = time_min - time_hour * 60;
 	sec = time_sec - time_min * 60;
 	
-	len = scnprinttf(buff, BUFF_SIZE, "%llu %llu %llu %llu \n", time_day, hour, min, sec);
+	len = scnprintf(buff, BUFF_SIZE, "%llu %llu %llu %llu \n", time_day, hour, min, sec);
 	ret = copy_to_user(buffer, buff, len);	
 	if(ret)
 		return -EFAULT;	
 
-	printk(KERN_INFO "Preostalo vreme je %llu : %llu : %llu : %llu \n", time_days, hour, min, sec);
+	printk(KERN_INFO "Preostalo vreme je %llu : %llu : %llu : %llu \n", time_day, hour, min, sec);
 
 	return 0;
 }
@@ -353,7 +356,7 @@ ssize_t timer_write(struct file *pfile, const char __user *buffer, size_t length
 	unsigned int hour = 0;
 	unsigned int day = 0;
 	uint64_t millis = 0;
-	char mod[2][5]={"start", "stop"}
+	char mod[2][5]={"start", "stop"};
 	int ret = 0;	
 	uint32_t time0 = 0;
 	uint32_t time1 = 0;
@@ -384,7 +387,7 @@ ssize_t timer_write(struct file *pfile, const char __user *buffer, size_t length
 	}
 	else
 	{
-		if(!strncmp(buff_in, mod[1], strlen(mod[1]))){   //stop
+		if(!strncmp(buff, mod[1], strlen(mod[1]))){   //stop
 			//Disable timer/interrupt
 			data = ioread32(tp->base_addr + XIL_AXI_TIMER_TCSR0_OFFSET);
 			iowrite32(data & ~(XIL_AXI_TIMER_CSR_ENABLE_TMR_MASK),
@@ -393,21 +396,21 @@ ssize_t timer_write(struct file *pfile, const char __user *buffer, size_t length
 			iowrite32(data & ~(XIL_AXI_TIMER_CSR_ENABLE_TMR_MASK),
 					tp->base_addr + XIL_AXI_TIMER_TCSR1_OFFSET);
 			//Read the value of tcr 	
-			time1=ioread(tp->base_addr + XIL_AXI_TIMER_TCR1_OFFSET);
-			time0=ioread(tp->base_addr + XIL_AXI_TIMER_TCR0_OFFSET);
+			time1=ioread32(tp->base_addr + XIL_AXI_TIMER_TCR1_OFFSET);
+			time0=ioread32(tp->base_addr + XIL_AXI_TIMER_TCR0_OFFSET);
 	
-			if(time1!=ioread(tp->base_addr + XIL_AXI_TIMER_TCR1_OFFSER)){
-				time1=ioread(tp->base_addr + XIL_AXI_TIMER_TCR1_OFFSET);
-				time0=ioread(tp->base_addr + XIL_AXI_TIMER_TCR0_OFFSET);
+			if(time1!=ioread32(tp->base_addr + XIL_AXI_TIMER_TCR1_OFFSET)){
+				time1=ioread32(tp->base_addr + XIL_AXI_TIMER_TCR1_OFFSET);
+				time0=ioread32(tp->base_addr + XIL_AXI_TIMER_TCR0_OFFSET);
 			}
 	
 			time_10nano = time1;
 			time_10nano <<= 32;
 			time_10nano += time0;
-			millis = div_u64(time_10nano. 100000);
+			millis = div_u64(time_10nano, 100000);
 		}
 		
-		if(!strncmp(buff_in, mod[0], strlen(mod[1]))){
+		if(!strncmp(buff, mod[0], strlen(mod[1]))){
 			 setup_and_start_timer(millis);
 		}
 			
