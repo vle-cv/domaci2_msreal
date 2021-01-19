@@ -121,8 +121,8 @@ static irqreturn_t xilaxitimer_isr(int irq,void*dev_id)
 	if(data1!=ioread32(tp->base_addr + XIL_AXI_TIMER_TCR1_OFFSET){
 		data1 = ioread32(tp->base_addr + XIL_AXI_TIMER_TCR1_OFFSET);
 		data0 = ioread32(tp->base_addr + XIL_AXI_TIMER_TCR0_OFFSET);
-	}
-	
+	}		
+
 	printk(KERN_INFO "xilaxitimer_isr: Interrupt occurred !\n");
 
 	// Clear Interrupt
@@ -314,12 +314,12 @@ ssize_t timer_read(struct file *pfile, char __user *buffer, size_t length, loff_
 	int ret = 0;
 	unsigned int len = 0;	
 
-	time1=ioread(tp->base_addr + XIL_AXI_TIMER_TCSR1_OFFSET);
-	time0=ioread(tp->base_addr + XIL_AXI_TIMER_TCSR0_OFFSET);
+	time1=ioread(tp->base_addr + XIL_AXI_TIMER_TCR1_OFFSET);
+	time0=ioread(tp->base_addr + XIL_AXI_TIMER_TCR0_OFFSET);
 	
-	if(time1!=ioread(tp->base_addr + XIL_AXI_TIMER_TCSR1_OFFSER)){
-		time1=ioread(tp->base_addr + XIL_AXI_TIMER_TCSR1_OFFSET);
-		time0=ioread(tp->base_addr + XIL_AXI_TIMER_TCSR0_OFFSET);
+	if(time1!=ioread(tp->base_addr + XIL_AXI_TIMER_TCR1_OFFSER)){
+		time1=ioread(tp->base_addr + XIL_AXI_TIMER_TCR1_OFFSET);
+		time0=ioread(tp->base_addr + XIL_AXI_TIMER_TCR0_OFFSET);
 	}
 
 	time_10nano = time1;
@@ -348,12 +348,17 @@ ssize_t timer_read(struct file *pfile, char __user *buffer, size_t length, loff_
 ssize_t timer_write(struct file *pfile, const char __user *buffer, size_t length, loff_t *offset) 
 {
 	char buff[BUFF_SIZE];
-	unsigned int sec;
-	unsigned int min;
-	unsigned int hour;
-	unsigned int day;
-	uint64_t millis;
-	int ret = 0;
+	unsigned int sec = 0;
+	unsigned int min = 0;
+	unsigned int hour = 0;
+	unsigned int day = 0;
+	uint64_t millis = 0;
+	char mod[2][5]={"start", "stop"}
+	int ret = 0;	
+	uint32_t time0 = 0;
+	uint32_t time1 = 0;
+	uint64_t time_10nano = 0;
+	uint32_t data = 0;
 
 	ret = copy_from_user(buff, buffer, length);
 	if(ret)
@@ -379,7 +384,33 @@ ssize_t timer_write(struct file *pfile, const char __user *buffer, size_t length
 	}
 	else
 	{
-		printk(KERN_WARNING "xilaxitimer_write: Wrong format, expected n,t \n\t n-number of interrupts\n\t t-time in ms between interrupts\n");
+		if(!strncmp(buff_in, mod[1], strlen(mod[1]))){   //stop
+			//Disable timer/interrupt
+			data = ioread32(tp->base_addr + XIL_AXI_TIMER_TCSR0_OFFSET);
+			iowrite32(data & ~(XIL_AXI_TIMER_CSR_ENABLE_TMR_MASK),
+					tp->base_addr + XIL_AXI_TIMER_TCSR0_OFFSET);
+			data = ioread32(tp->base_addr + XIL_AXI_TIMER_TCSR1_OFFSET);
+			iowrite32(data & ~(XIL_AXI_TIMER_CSR_ENABLE_TMR_MASK),
+					tp->base_addr + XIL_AXI_TIMER_TCSR1_OFFSET);
+			//Read the value of tcr 	
+			time1=ioread(tp->base_addr + XIL_AXI_TIMER_TCR1_OFFSET);
+			time0=ioread(tp->base_addr + XIL_AXI_TIMER_TCR0_OFFSET);
+	
+			if(time1!=ioread(tp->base_addr + XIL_AXI_TIMER_TCR1_OFFSER)){
+				time1=ioread(tp->base_addr + XIL_AXI_TIMER_TCR1_OFFSET);
+				time0=ioread(tp->base_addr + XIL_AXI_TIMER_TCR0_OFFSET);
+			}
+	
+			time_10nano = time1;
+			time_10nano <<= 32;
+			time_10nano += time0;
+			millis = div_u64(time_10nano. 100000);
+		}
+		
+		if(!strncmp(buff_in, mod[0], strlen(mod[1]))){
+			 setup_and_start_timer(millis);
+		}
+			
 	}
 	return length;
 }
