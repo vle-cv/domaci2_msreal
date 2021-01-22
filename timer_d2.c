@@ -136,8 +136,8 @@ static void setup_timer(uint64_t millisec){
 	uint64_t timer_load = 0;
 
 	timer_load =  millisec*100000 + 4;
-	load0 = (uint32_t) timer_load;
-	load1 = (uint32_t) (timer_load >> 32); 
+	load0 = (unsigned int) timer_load;
+	load1 = (unsigned int) (timer_load >> 32); 
 
 	// Disable timer/counter while configuration is in progress
 	data0 = ioread32(tp->base_addr + XIL_AXI_TIMER_TCSR0_OFFSET);
@@ -170,28 +170,32 @@ static void setup_timer(uint64_t millisec){
 	iowrite32(data1 & ~(XIL_AXI_TIMER_CSR_LOAD_MASK),
 			tp->base_addr + XIL_AXI_TIMER_TCSR1_OFFSET);
 
-
 	// Enable interrupts and cascade mode and downcounting, rest should be zero
 	iowrite32(XIL_AXI_TIMER_CSR_ENABLE_INT_MASK | XIL_AXI_TIMER_CSR_CASC_MASK | XIL_AXI_TIMER_CSR_DOWN_COUNT_MASK,
 			tp->base_addr + XIL_AXI_TIMER_TCSR0_OFFSET);
+	
+	printk(KERN_INFO "Setup odradjen \n");
 
 }
 
 static void start_timer(){
 
 	uint32_t data = 0;
-
+	
 	// Start Timer by setting enable signal
 	data = ioread32(tp->base_addr + XIL_AXI_TIMER_TCSR0_OFFSET);
 	iowrite32(data | XIL_AXI_TIMER_CSR_ENABLE_ALL_MASK,
 			tp->base_addr + XIL_AXI_TIMER_TCSR0_OFFSET);
+
+	printk(KERN_INFO "Start odradjen \n");
+
 }
 
 static void stop_timer(){
 
 	uint32_t data0 = 0;
 	uint32_t data1 = 0;
-
+	
 	// Stop Timer by clearing enable bits
 	data0 = ioread32(tp->base_addr + XIL_AXI_TIMER_TCSR0_OFFSET);
 	data1 = ioread32(tp->base_addr + XIL_AXI_TIMER_TCSR1_OFFSET);
@@ -200,6 +204,9 @@ static void stop_timer(){
 			tp->base_addr + XIL_AXI_TIMER_TCSR0_OFFSET);
 	iowrite32(data0 & ~(XIL_AXI_TIMER_CSR_ENABLE_TMR_MASK),
 			tp->base_addr + XIL_AXI_TIMER_TCSR1_OFFSET);
+
+	printk(KERN_INFO "Stop odradjen \n");
+
 }
 
 uint64_t read_timer_counter(){
@@ -215,9 +222,9 @@ uint64_t read_timer_counter(){
 		tcr0 = ioread32(tp->base_addr + XIL_AXI_TIMER_TCR0_OFFSET);
 	}
 	
-	tcr = tcr1;
+	tcr = (uint64_t) tcr1;
 	tcr <<= 32;
-	tcr += tcr0;
+	tcr += (uint64_t) tcr0;
 
 	return tcr;
 }
@@ -331,7 +338,7 @@ int timer_close(struct inode *pinode, struct file *pfile)
 ssize_t timer_read(struct file *pfile, char __user *buffer, size_t length, loff_t *offset) 
 {
 	uint64_t time_10nano = 0;
-	uint64_t time = 0;
+	uint64_t time_1s = 0;
 	uint64_t time_sec = 0;
 	uint64_t time_min = 0;
 	uint64_t time_hour = 0;
@@ -341,18 +348,18 @@ ssize_t timer_read(struct file *pfile, char __user *buffer, size_t length, loff_
 	char buff[BUFF_SIZE];
 		
 	time_10nano = read_timer_counter();	
-	time = div_u64(time_10nano, 100000*1000);
+	time_1s = div_u64(time_10nano, 100000*1000);
 
-	time_day = div_u64(time, 60*60*24);
-	time = time - time_day*60*60*24;
+	time_day = div_u64(time_1s, 60*60*24);
+	time_1s -= (time_day*60*60*24);
 	 	
-	time_hour = div_u64(time_10nano, 60*60);
-	time = time - time_hour*60*60;
+	time_hour = div_u64(time_1s, 60*60);
+	time_1s -= (time_hour*60*60);
 
-	time_min = div_u64(time_10nano, 60);
-	time = time - time_hour*60;
+	time_min = div_u64(time_1s, 60);
+	time_1s -= (time_hour*60);
 
-	time_sec = time;
+	time_sec = time_1s;
 	
 	len = scnprintf(buff, BUFF_SIZE, "%llu %llu %llu %llu \n", time_day, time_hour, time_min, time_sec);
 	ret = copy_to_user(buffer, buff, len);	
@@ -373,6 +380,7 @@ ssize_t timer_write(struct file *pfile, const char __user *buffer, size_t length
 	uint32_t hour = 0;
 	uint32_t day = 0;
 	uint64_t millis = 0;
+	uint64_t time_10n;
 	char *mod[6]={"start", "stop"};
 	int ret = 0;	
 
@@ -384,8 +392,7 @@ ssize_t timer_write(struct file *pfile, const char __user *buffer, size_t length
 	ret = sscanf(buff,"%d:%d:%d:%d",&day,&hour,&min,&sec);
 	millis = day*86400000 + hour*3600000 + min*60000 + sec*1000;
 
-  
-	if(ret == 4)//two parameters parsed in sscanf
+	if(ret == 4)//4 parameters parsed in sscanf
 	{
 		if (day > 213500)
 		{
@@ -401,12 +408,17 @@ ssize_t timer_write(struct file *pfile, const char __user *buffer, size_t length
 	}
 	else
 	{
-		if(!strncmp(buff, mod[0], strlen(mod[0]))){   //start
+		time_10n = read_timer_counter();	
+		millis = div_u64(time_10n, 100000);
+
+		if(strncmp(buff, mod[0], strlen(mod[0]))==0){   //start
+			setup_timer(millis);
 			start_timer();
 		}
 		
-		if(!strncmp(buff, mod[1], strlen(mod[1]))){   //stop
-			 stop_timer();
+		if(strncmp(buff, mod[1], strlen(mod[1]))==0){   //stop
+			setup_timer(millis);
+			stop_timer();
 		}
 			
 	}
