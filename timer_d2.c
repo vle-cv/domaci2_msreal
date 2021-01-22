@@ -28,8 +28,6 @@
 #define XIL_AXI_TIMER_TLR1_OFFSET	0x14
 #define XIL_AXI_TIMER_TCR1_OFFSET       0x18
 
-
-
 #define XIL_AXI_TIMER_CSR_CASC_MASK		0x00000800
 #define XIL_AXI_TIMER_CSR_ENABLE_ALL_MASK	0x00000400
 #define XIL_AXI_TIMER_CSR_ENABLE_PWM_MASK	0x00000200
@@ -70,7 +68,10 @@ static struct timer_info *tp = NULL;
 
 
 static irqreturn_t xilaxitimer_isr(int irq,void*dev_id);
-static void setup_and_start_timer(unsigned int milliseconds);
+static void setup_timer(uint64_t millisec);
+static void start_timer(void);
+static void stop_timer(void);
+uint64_t read_timer_counter(void); 
 static int timer_probe(struct platform_device *pdev);
 static int timer_remove(struct platform_device *pdev);
 int timer_open(struct inode *pinode, struct file *pfile);
@@ -107,6 +108,25 @@ static struct platform_driver timer_driver = {
 
 MODULE_DEVICE_TABLE(of, timer_of_match);
 
+//***************************************************
+// INTERRUPT SERVICE ROUTINE (HANDLER)
+
+static irqreturn_t xilaxitimer_isr(int irq,void*dev_id)		
+{      
+	uint32_t data0 = 0;
+	
+	printk(KERN_INFO "xilaxitimer_isr: Interrupt occurred !\n");
+
+	// Clear Interrupt
+	data0 = ioread32(tp->base_addr + XIL_AXI_TIMER_TCSR0_OFFSET);
+	iowrite32(data0 | XIL_AXI_TIMER_CSR_INT_OCCURED_MASK,
+			tp->base_addr + XIL_AXI_TIMER_TCSR0_OFFSET);
+
+	stop_timer();
+
+	return IRQ_HANDLED;
+}
+
 static void setup_timer(uint64_t millisec){
 
 	uint32_t data0 = 0;
@@ -125,7 +145,7 @@ static void setup_timer(uint64_t millisec){
 
 	iowrite32(data0 & ~(XIL_AXI_TIMER_CSR_ENABLE_TMR_MASK),
 			tp->base_addr + XIL_AXI_TIMER_TCSR0_OFFSET);
-	iowrite32(data0 & ~(XIL_AXI_TIMER_CSR_ENABLE_TMR_MASK),
+	iowrite32(data1 & ~(XIL_AXI_TIMER_CSR_ENABLE_TMR_MASK),
 			tp->base_addr + XIL_AXI_TIMER_TCSR1_OFFSET);
 
 	// Set initial value in load register
@@ -145,9 +165,9 @@ static void setup_timer(uint64_t millisec){
 	data0 = ioread32(tp->base_addr + XIL_AXI_TIMER_TCSR0_OFFSET);
 	data1 = ioread32(tp->base_addr + XIL_AXI_TIMER_TCSR1_OFFSET);
 
-	iowrite32(data & ~(XIL_AXI_TIMER_CSR_LOAD_MASK),
+	iowrite32(data0 & ~(XIL_AXI_TIMER_CSR_LOAD_MASK),
 			tp->base_addr + XIL_AXI_TIMER_TCSR0_OFFSET);
-	iowrite32(data & ~(XIL_AXI_TIMER_CSR_LOAD_MASK),
+	iowrite32(data1 & ~(XIL_AXI_TIMER_CSR_LOAD_MASK),
 			tp->base_addr + XIL_AXI_TIMER_TCSR1_OFFSET);
 
 
@@ -182,25 +202,26 @@ static void stop_timer(){
 			tp->base_addr + XIL_AXI_TIMER_TCSR1_OFFSET);
 }
 
+uint64_t read_timer_counter(){
+	
+	uint32_t tcr0 = 0;
+	uint32_t tcr1 = 0;
+	uint64_t tcr =0;
+	
+	tcr1 = ioread32(tp->base_addr + XIL_AXI_TIMER_TCR1_OFFSET);
+	tcr0 = ioread32(tp->base_addr + XIL_AXI_TIMER_TCR0_OFFSET);
 
+	if(tcr1!=ioread32(tp->base_addr + XIL_AXI_TIMER_TCR1_OFFSET)){
+		tcr0 = ioread32(tp->base_addr + XIL_AXI_TIMER_TCR0_OFFSET);
+	}
+	
+	tcr = tcr1;
+	tcr <<= 32;
+	tcr += tcr0;
 
-//***************************************************
-// INTERRUPT SERVICE ROUTINE (HANDLER)
-
-static irqreturn_t xilaxitimer_isr(int irq,void*dev_id)		
-{      
-
-	printk(KERN_INFO "xilaxitimer_isr: Interrupt occurred !\n");
-
-	// Clear Interrupt
-	data0 = ioread32(tp->base_addr + XIL_AXI_TIMER_TCSR0_OFFSET);
-	iowrite32(data0 | XIL_AXI_TIMER_CSR_INT_OCCURED_MASK,
-			tp->base_addr + XIL_AXI_TIMER_TCSR0_OFFSET);
-
-	stop_timer();
-
-	return IRQ_HANDLED;
+	return tcr;
 }
+
 
 //***************************************************
 // PROBE AND REMOVE
@@ -309,47 +330,37 @@ int timer_close(struct inode *pinode, struct file *pfile)
 
 ssize_t timer_read(struct file *pfile, char __user *buffer, size_t length, loff_t *offset) 
 {
-	uint32_t time0 = 0;
-	uint32_t time1 = 0;
 	uint64_t time_10nano = 0;
+	uint64_t time = 0;
 	uint64_t time_sec = 0;
 	uint64_t time_min = 0;
 	uint64_t time_hour = 0;
 	uint64_t time_day = 0;
-	uint64_t sec = 0;
-	uint64_t min = 0;
-	uint64_t hour = 0;
 	int ret = 0;
-	unsigned int len = 0;	
+	long int len = 0;
 	char buff[BUFF_SIZE];
-
-	time1=ioread32(tp->base_addr + XIL_AXI_TIMER_TCR1_OFFSET);
-	time0=ioread32(tp->base_addr + XIL_AXI_TIMER_TCR0_OFFSET);
-	
-	if(time1!=ioread32(tp->base_addr + XIL_AXI_TIMER_TCR1_OFFSET)){
-		time1=ioread32(tp->base_addr + XIL_AXI_TIMER_TCR1_OFFSET);
-		time0=ioread32(tp->base_addr + XIL_AXI_TIMER_TCR0_OFFSET);
-	}
-
-	time_10nano = time1;
-	time_10nano <<= 32;
-	time_10nano += time0;
 		
-	time_sec = div_u64(time_10nano, 100000*1000);
-	time_min = div_u64(time_sec, 60);
-	time_hour = div_u64(time_min, 60);
-	time_day = div_u64(time_hour, 24);
+	time_10nano = read_timer_counter();	
+	time = div_u64(time_10nano, 100000*1000);
+
+	time_day = div_u64(time, 60*60*24);
+	time = time - time_day*60*60*24;
+	 	
+	time_hour = div_u64(time_10nano, 60*60);
+	time = time - time_hour*60*60;
+
+	time_min = div_u64(time_10nano, 60);
+	time = time - time_hour*60;
+
+	time_sec = time;
 	
-	hour = time_hour - time_day * 24;
-	min = time_min - time_hour * 60;
-	sec = time_sec - time_min * 60;
-	
-	len = scnprintf(buff, BUFF_SIZE, "%llu %llu %llu %llu \n", time_day, hour, min, sec);
+	len = scnprintf(buff, BUFF_SIZE, "%llu %llu %llu %llu \n", time_day, time_hour, time_min, time_sec);
 	ret = copy_to_user(buffer, buff, len);	
+
 	if(ret)
 		return -EFAULT;	
 
-	printk(KERN_INFO "Preostalo vreme je %llu : %llu : %llu : %llu \n", time_day, hour, min, sec);
+	printk(KERN_INFO "Preostalo vreme je %llu : %llu : %llu : %llu \n", time_day, time_hour, time_min, time_sec);
 
 	return 0;
 }
@@ -372,6 +383,7 @@ ssize_t timer_write(struct file *pfile, const char __user *buffer, size_t length
 
 	ret = sscanf(buff,"%d:%d:%d:%d",&day,&hour,&min,&sec);
 	millis = day*86400000 + hour*3600000 + min*60000 + sec*1000;
+
   
 	if(ret == 4)//two parameters parsed in sscanf
 	{
@@ -383,10 +395,10 @@ ssize_t timer_write(struct file *pfile, const char __user *buffer, size_t length
 		{
 			printk(KERN_INFO "xilaxitimer_write: Starting timer for %d days, %d hours, %d minutes, %d seconds \n",day,hour,min,sec);
 			setup_timer(millis);
-			start_timer
+			start_timer();
 		}
 
-i	}
+	}
 	else
 	{
 		if(!strncmp(buff, mod[0], strlen(mod[0]))){   //start
@@ -394,7 +406,7 @@ i	}
 		}
 		
 		if(!strncmp(buff, mod[1], strlen(mod[1]))){   //stop
-			 stop_timer(millis);
+			 stop_timer();
 		}
 			
 	}
