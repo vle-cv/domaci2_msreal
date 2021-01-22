@@ -62,7 +62,8 @@ static struct class *my_class;
 static struct device *my_device;
 static struct cdev *my_cdev;
 static struct timer_info *tp = NULL;
-
+unsigned int running = 0;
+unsigned int end = 1;
 //static int i_num = 1;
 //static int i_cnt = 0;
 
@@ -115,27 +116,28 @@ static irqreturn_t xilaxitimer_isr(int irq,void*dev_id)
 {      
 	uint32_t data0 = 0;
 	
-	printk(KERN_INFO "xilaxitimer_isr: Interrupt occurred !\n");
+	printk(KERN_INFO "Isteklo vreme!\n");
 
 	// Clear Interrupt
 	data0 = ioread32(tp->base_addr + XIL_AXI_TIMER_TCSR0_OFFSET);
 	iowrite32(data0 | XIL_AXI_TIMER_CSR_INT_OCCURED_MASK,
 			tp->base_addr + XIL_AXI_TIMER_TCSR0_OFFSET);
-
+	
+	end = 1;
 	stop_timer();
 
 	return IRQ_HANDLED;
 }
 
 static void setup_timer(uint64_t millisec){
-
+	
 	uint32_t data0 = 0;
 	uint32_t data1 = 0;
 	uint32_t load0 = 0;
 	uint32_t load1 = 0;
 	uint64_t timer_load = 0;
 
-	timer_load =  millisec*100000 + 4;
+	timer_load =  millisec*100000 ;
 	load0 = (unsigned int) timer_load;
 	load1 = (unsigned int) (timer_load >> 32); 
 
@@ -186,6 +188,8 @@ static void start_timer(){
 	data = ioread32(tp->base_addr + XIL_AXI_TIMER_TCSR0_OFFSET);
 	iowrite32(data | XIL_AXI_TIMER_CSR_ENABLE_ALL_MASK,
 			tp->base_addr + XIL_AXI_TIMER_TCSR0_OFFSET);
+	
+	running = 1;	
 
 	printk(KERN_INFO "Start odradjen \n");
 
@@ -204,6 +208,8 @@ static void stop_timer(){
 			tp->base_addr + XIL_AXI_TIMER_TCSR0_OFFSET);
 	iowrite32(data0 & ~(XIL_AXI_TIMER_CSR_ENABLE_TMR_MASK),
 			tp->base_addr + XIL_AXI_TIMER_TCSR1_OFFSET);
+
+	running = 0;
 
 	printk(KERN_INFO "Stop odradjen \n");
 
@@ -390,16 +396,18 @@ ssize_t timer_write(struct file *pfile, const char __user *buffer, size_t length
 	buff[length] = '\0';
 
 	ret = sscanf(buff,"%d:%d:%d:%d",&day,&hour,&min,&sec);
-	millis = day*86400000 + hour*3600000 + min*60000 + sec*1000;
 
+	millis = day*86400000 + hour*3600000 + min*60000 + sec*1000;
+	
 	if(ret == 4)//4 parameters parsed in sscanf
 	{
-		if (day > 213500)
+		if (day > 2135000)
 		{
 			printk(KERN_WARNING "xilaxitimer_write: Maximum period exceeded, enter something less than 213500 days \n");
 		}
 		else
 		{
+			end = 0;
 			printk(KERN_INFO "xilaxitimer_write: Starting timer for %d days, %d hours, %d minutes, %d seconds \n",day,hour,min,sec);
 			setup_timer(millis);
 			start_timer();
@@ -411,15 +419,21 @@ ssize_t timer_write(struct file *pfile, const char __user *buffer, size_t length
 		time_10n = read_timer_counter();	
 		millis = div_u64(time_10n, 100000);
 
-		if(strncmp(buff, mod[0], strlen(mod[0]))==0){   //start
-			setup_timer(millis);
-			start_timer();
+		if(strncmp(buff, mod[0], strlen(mod[0]))==0){ //start
+			if((!running) && (!end)){
+				setup_timer(millis);
+				start_timer();
+			}
+			else printk(KERN_INFO "Timer je vec startovan ili je vreme isteklo \n");
 		}
-		
-		if(strncmp(buff, mod[1], strlen(mod[1]))==0){   //stop
-			setup_timer(millis);
-			stop_timer();
+		else if(strncmp(buff, mod[1], strlen(mod[1]))==0){ //stop
+			if(running){
+				setup_timer(millis);
+				stop_timer();
+			}
+			else printk(KERN_INFO "Timer je vec stopiran \n");
 		}
+		else printk(KERN_INFO "Prosledjena pogresna komanda \n");
 			
 	}
 	return length;
